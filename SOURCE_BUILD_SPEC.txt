@@ -1,0 +1,243 @@
+# BUILD SPEC: "SplitSave" — Shared Expenses + Gamified Savings App
+
+## 1. GOAL
+Build a simple, working, multi-user web app where people can:
+(a) track personal expenses,
+(b) split shared expenses within groups and settle up,
+(c) set savings goals and stay motivated through streaks, badges and an
+    opt-in group leaderboard.
+
+Success = a small group of friends can use it end-to-end for a trip or shared
+flat without spreadsheets or arguments about who owes what.
+
+## 2. CONTEXT
+- Users: small groups (2–20 people) — friends, roommates, families, travel groups.
+- Problem: shared costs get messy; saving alone is demotivating.
+- Environment: greenfield project. No existing system, data or APIs.
+- "Simple" is a hard requirement: favour fewer screens, fewer dependencies,
+  and obvious behaviour over feature breadth.
+
+## 3. INPUTS & ASSUMPTIONS
+Available: nothing pre-existing. You choose the stack (see §9).
+Assumptions (do not treat as facts; list them in your final summary):
+- Savings contributions are self-reported; no bank integration.
+- One currency per group, set at creation; no conversion.
+- "Leadership" in the original request = leaderboard.
+- Leaderboard ranks by % progress and streaks, NEVER by absolute amounts.
+You MUST NOT invent third-party APIs, payment integrations or credentials.
+
+## 4. USER FLOWS
+F1 Sign up / log in
+  Trigger: new or returning user. Main path: email + password (or magic link)
+  → dashboard. Failure: invalid credentials, existing email → clear inline error.
+
+F2 Create group & invite
+  Create group (name, currency) → share invite link → invitee opens link →
+  logs in/signs up → joins group. Failure: expired/invalid link, already a
+  member → explain, no duplicate membership.
+
+F3 Add shared expense
+  In group: amount, description, date, payer, participants, split type
+  (equal / exact amounts / percentages) → validate → save → balances update.
+  Decision point: split type. Failure: shares don't sum to total → block save,
+  show the difference.
+
+F4 Edit / delete expense
+  Only the creator or payer may edit/delete. Balances recalculate. Deletion
+  requires confirmation.
+
+F5 View balances & settle up
+  Group page shows each member's net balance and a simplified
+  "who pays whom" list (minimum number of transfers). User records a
+  settlement (manual record only — no money moves) → balances update.
+
+F6 Track personal expenses
+  Add expense with category (fixed default list + "Other") → see monthly
+  total and per-category breakdown.
+
+F7 Create savings goal & log contributions
+  Goal: name, target amount, optional deadline → log contributions (amount,
+  date) → progress bar updates → points/streak/badges update.
+
+F8 Leaderboard
+  In a group, members who opted in see a ranked list by goal progress % and
+  current streak. Users can opt out at any time; opting out removes them
+  immediately.
+
+## 5. REQUIREMENTS
+P0 (MUST)
+- Authentication; each user sees only their own data and groups they belong to.
+- Groups with invite links; member list.
+- Shared expenses with equal / exact / percentage splits.
+- Correct net balances and simplified settle-up suggestions.
+- Recording settlements.
+- Savings goals, contributions, progress %.
+- Opt-in group leaderboard ranked by progress % (tiebreak: streak, then earliest
+  to reach that %).
+- All money stored as integers in minor units (e.g. cents/paise). No floats.
+
+P1 (SHOULD)
+- Personal expense tracking with categories and monthly summary.
+- Weekly savings streak: +1 for each consecutive calendar week with ≥1
+  contribution; resets after a missed week.
+- Points: contribution logged = 10 pts (max 1 per day counts), milestone
+  25/50/75/100% = 50 pts each, streak week = 20 pts.
+- Badges: First Goal, First Contribution, 4-Week Streak, Goal Complete,
+  Settled Up (group balance zero).
+- Activity feed per group (expense added, settlement, goal milestone).
+
+P2 (MAY) — only if P0/P1 are complete and validated
+- Simple charts, CSV export of a group's expenses.
+
+P3 (MUST NOT build in v1) — real payments, bank linking, multi-currency
+conversion, receipt OCR, push notifications, native mobile apps.
+
+Non-functional
+- Mobile-first responsive layout, usable at 360px width.
+- WCAG 2.1 AA basics: labels, contrast, keyboard navigation, visible focus.
+- Pages load in < 2s on a typical connection with ≤ 500 expenses per group.
+
+## 6. CONSTRAINTS
+- Keep dependencies minimal; justify every non-trivial library.
+- No secrets in source code; use environment variables and an .env.example.
+- Financial privacy: other members never see a user's personal expenses or
+  absolute savings amounts — only progress % and streak (if opted in).
+- Server-side authorization on every read/write (not UI-only hiding).
+
+## 7. EDGE CASES & BOUNDARIES
+Inputs
+- Amount ≤ 0, non-numeric, > 2 decimal places, absurdly large (cap at
+  10,000,000.00) → reject with a clear message.
+- Rounding: 100.00 split 3 ways → 33.34 / 33.33 / 33.33. Remainder minor
+  units go to participants in a deterministic order (e.g. payer first, then by
+  join order). Shares MUST always sum exactly to the total.
+- Percentages not summing to 100 → block save.
+- Expense with only the payer as participant → allowed (no balance effect);
+  warn the user.
+Users & groups
+- Member tries to leave with non-zero balance → block; show what to settle.
+- Removed/left member's past expenses remain visible, attributed to
+  "former member".
+- Double-submit of the same form → must not create duplicates.
+Gamification
+- Deleting a contribution recalculates progress, streak, points and badges
+  (no point farming by add/delete loops).
+- Goal target edited below current saved amount → mark as complete.
+- Contributions over the target are allowed; progress caps at 100% on the
+  leaderboard.
+- Backdated contributions count toward the week they're dated in; future
+  dates are rejected.
+- Group with 0 or 1 opted-in members → show an encouraging empty state, not
+  a broken leaderboard.
+System
+- Network/API failure → keep form data, show retry; never silently lose input.
+- Expired session → redirect to login, then return to the original page.
+Empty states for: no groups, no expenses, no goals, no contributions.
+
+## 8. UX / DESIGN PRINCIPLES
+- Home dashboard answers three questions at a glance: "What do I owe /
+  what am I owed?", "How are my goals going?", "Where do I rank?"
+- Primary action on each screen is visually dominant (e.g. "Add expense").
+- Money that you owe is shown in one consistent colour and money owed to you
+  in another, AND always with text labels ("you owe" / "owes you") — never
+  colour alone.
+- Every action gives feedback: loading state, success toast, inline errors
+  next to the field that caused them.
+- Destructive actions (delete, leave group) require confirmation.
+- Gamification tone: encouraging, never shaming. No "last place" labels;
+  show rank and progress only.
+- Celebrate milestones with a lightweight animation that respects
+  prefers-reduced-motion.
+
+## 9. ARCHITECTURE & STRUCTURE
+Choose the simplest stack that supports auth + multi-user shared data.
+Recommended default (you may substitute with a one-line justification):
+- TypeScript, React-based web front end.
+- Either a single full-stack framework with a relational DB (SQLite in dev,
+  Postgres in prod), or a hosted backend-as-a-service that provides auth +
+  database with row-level security.
+- Modular monolith. No microservices, queues or event buses.
+
+Data model (minimum):
+User, Group, GroupMember(role, joined_at, leaderboard_opt_in),
+Expense(group_id nullable for personal, payer_id, amount_minor, currency,
+category, date, created_by), ExpenseShare(expense_id, user_id, amount_minor),
+Settlement(group_id, from_user, to_user, amount_minor, date),
+SavingsGoal(user_id, name, target_minor, deadline), Contribution(goal_id,
+amount_minor, date), Achievement(user_id, badge, earned_at).
+Points, streaks and balances SHOULD be derived from source records (computed
+or cached with recompute), not hand-incremented counters.
+
+Isolate pure logic in its own module with no UI or DB imports:
+splitting, balance calculation, debt simplification, streak and points
+calculation. This module must be fully unit-tested.
+
+## 10. SUCCESS CRITERIA
+Done means all of the following are demonstrably true:
+1. Three test users can sign up, form a group, add mixed-split expenses,
+   and see balances that net to exactly zero across the group.
+2. Settle-up suggestions, when all recorded, bring every balance to zero.
+3. A user can create a goal, log contributions, and see progress, streak,
+   points and badges update correctly, including after a deletion.
+4. The leaderboard shows only opted-in members, ranked by progress %, and
+   never exposes absolute amounts.
+5. A user cannot read or modify another group's data via the API.
+6. All P0 unit tests pass; the app runs locally from README instructions.
+
+## 11. VALIDATION & CHECKPOINTS
+Work in this order; do not proceed past a failed gate.
+Gate 1: Restate scope, assumptions and chosen stack in ≤ 15 lines.
+Gate 2: Data model + pure-logic module + unit tests (split rounding,
+        balances sum to zero, debt simplification, streak rules, point
+        recalculation on deletion). All passing.
+Gate 3: Auth + groups + shared expenses + balances + settle-up working
+        end-to-end.
+Gate 4: Savings goals + gamification + leaderboard.
+Gate 5: Edge cases from §7, authorization checks, empty/error states.
+Gate 6: Accessibility and responsive check at 360px and desktop.
+Gate 7: README, .env.example, final summary.
+On failure: STOP → diagnose → fix or report → re-run the gate's checks.
+
+## 12. EXAMPLES
+Equal split: A pays 90.00 for A, B, C → shares 30.00 each →
+  B owes A 30.00, C owes A 30.00.
+Rounding: A pays 100.00 for A, B, C → A 33.34, B 33.33, C 33.33.
+Simplification: A owes B 10, B owes C 10 → suggest "A pays C 10" (1 transfer).
+Invalid: exact split of 50.00 with shares 20 + 20 → reject ("10.00 unassigned").
+Leaderboard: A saved 5,000 of 10,000 (50%), B saved 900 of 1,000 (90%)
+  → B ranks above A. Neither amount is shown, only 90% and 50%.
+Streak: contributions in weeks 1, 2, 3, none in week 4, one in week 5
+  → streak was 3, now 1.
+
+## 13. OUTPUT FORMAT
+Produce, in order:
+1. Gate 1 summary (scope, assumptions, stack + justification).
+2. File tree.
+3. Complete source code, file by file.
+4. Unit tests for the pure-logic module.
+5. README: setup, env vars, run, test, seed data for 3 demo users.
+6. Final report: what was implemented, which tests you actually ran and
+   their results, known limitations, and any assumption you made beyond
+   this spec. If you could not run tests, say so explicitly.
+
+## 14. ITERATION & FEEDBACK
+- Fix bugs with the smallest change that preserves working behaviour;
+  re-run affected tests after every fix.
+- On change requests, state which flows/tests are affected before editing.
+- Do not refactor unrelated code during a fix.
+
+## 15. GUARDRAILS
+You MUST NOT:
+- Implement real payments, bank connections or anything that moves money.
+- Use floating-point types for money.
+- Expose one user's personal expenses or absolute savings to others.
+- Hard-code secrets, fabricate test results, or claim features you didn't build.
+- Add P2/P3 features before P0/P1 are complete and validated.
+- Add scope (e.g. social feed, chat, ads) not in this spec.
+
+You MAY decide: UI library, styling approach, folder layout, category list,
+badge visuals, exact copy text.
+You SHOULD recommend (then proceed with your recommendation): stack choice,
+hosting target, auth method.
+You MUST stop and ask if: a requirement here is impossible with your chosen
+stack, requirements conflict, or a security trade-off is unclear.
